@@ -1,103 +1,238 @@
-# UX Analyzer
+# Gazely
 
-Webcam eye tracking dan mouse tracking untuk merekam sesi evaluasi UX.
+Gazely is a user experience evaluation tool that combines gaze estimation, mouse activity tracking, and screen recording. Its web interface supports calibration, session recording, playback, screenshot heatmaps, and review of potential friction events.
 
-## Menjalankan versi perbaikan
+The frontend runs in a browser, while a Python backend captures the camera, screen, and mouse on the same computer. The current implementation is designed for local testing and stores session data as files.
 
-Gunakan terminal di folder repository ini. Buat virtual environment dengan Python yang kompatibel dengan MediaPipe, lalu:
+## Features
 
-```bash
-python -m venv .venv
-```
+- Grid-based gaze calibration with validation on separate targets.
+- Webcam-based gaze estimation using Ridge Regression, Kalman filtering, and EMA smoothing.
+- Primary-screen recording alongside gaze, mouse movement, clicks, and scrolling.
+- Video playback with gaze and mouse markers synchronized to session timestamps.
+- Screenshot heatmaps grouped by page appearance, with fixed smoothing and PNG export.
+- Detection of potential rage clicks and gaze–mouse mismatches.
+- Calibration accuracy reports and gaze frame quality information.
 
-Windows PowerShell:
+## Technology
+
+| Layer | Components |
+| --- | --- |
+| Frontend | React, React Router, Tailwind CSS |
+| Build and assets | Vite, TypeScript, Lucide React, Onest |
+| API | FastAPI, Uvicorn |
+| Gaze estimation | Local EyeTrax package, MediaPipe, OpenCV, scikit-learn |
+| Numerical computing | NumPy, SciPy |
+| Screen and mouse capture | MSS, pynput, screeninfo |
+| Storage | CSV, JSON, PKL, MP4, JPG; PNG heatmap exports |
+
+The application interface is written in JavaScript/JSX. TypeScript is also part of the frontend build process. Dependencies are listed in [requirements.txt](requirements.txt), [api/requirements.txt](api/requirements.txt), [eyetrax/pyproject.toml](eyetrax/pyproject.toml), and [frontend/package.json](frontend/package.json).
+
+## Requirements
+
+- A desktop computer with a webcam, primary display, and mouse or touchpad. The repository's web workflow was developed on Windows.
+- A Python version compatible with MediaPipe, OpenCV, and scikit-learn. EyeTrax package metadata specifies Python ≥3.9; compatibility with a particular Python version still depends on dependency availability.
+- Node.js ≥22.12 for the Vite version used in this repository.
+- Internet access to install dependencies and download the face landmark model on first use.
+- H.264 encoding support in OpenCV to save screen recordings in web mode.
+
+Use one primary display. Keep the resolution, display scaling, camera position, and participant position consistent between calibration and recording.
+
+## Installation
+
+Run the following commands from the repository root. These examples use Windows PowerShell.
+
+### Backend
 
 ```powershell
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python main.py
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt -r api/requirements.txt mss
 ```
 
-macOS / Linux:
+`requirements.txt` installs EyeTrax from the local `eyetrax/` directory. MSS is required for screen recording and is installed explicitly above because it is not yet listed in the requirements files.
 
-```bash
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python main.py
+On first use, the application downloads `face_landmarker.task` to the user cache. To use an existing local model, set the `EYETRAX_FACE_LANDMARKER_MODEL` environment variable to its file path before starting the backend.
+
+### Frontend
+
+```powershell
+cd frontend
+npm.cmd ci
 ```
 
-EyeTrax akan mendownload `face_landmarker.task` pada penggunaan pertama. Izinkan akses webcam dan, jika dibutuhkan OS, mouse monitoring. Gunakan satu layar utama, resolusi dan display scaling yang sama selama calibration, validation, dan recording. Jangan pindah layar atau mengubah posisi webcam di tengah sesi. Multi-monitor dengan koordinat desktop berbeda belum divalidasi.
+Using `npm.cmd` in PowerShell avoids invoking the `npm.ps1` shim.
 
-## Alur sesi
+## Running the web app
 
-1. Face detection dan countdown.
-2. Calibration 4x4: semua dots tetap terlihat. Fokus hanya pada dot hijau dengan pusat putih. Dots yang selesai berubah warna, bukan hilang. Waktu settling tidak menjadi training data.
-3. Validation pada lima lokasi yang berbeda dari training grid. Data ini mengukur raw gaze error dan mengestimasi measurement noise Kalman; tidak melatih ulang regression model.
-4. Preview dengan seluruh calibration dots tetap terlihat dan cursor gaze biru. Tidak ada data UX yang direkam pada tahap ini.
-5. Tekan **Enter** di preview untuk mulai recording, **R** untuk calibration ulang, atau **Esc** untuk membatalkan. Recording tidak dimulai otomatis.
-6. Setelah Enter, pindah ke website yang ingin diuji. Gaze dan mouse direkam bersama. Untuk berhenti, kembali ke terminal dan tekan **Ctrl+C**. Perpindahan window juga termasuk interaksi desktop yang direkam; recording ini belum memiliki penanda batas task website.
+Start the backend and frontend in separate terminals.
 
-```bash
-python main.py --grid-rows 5 --grid-cols 5 --settle 1.2 --capture 2 --ema-alpha 0.25
+**Terminal 1 — from the repository root:**
+
+```powershell
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --host 127.0.0.1 --port 8888 --reload
 ```
 
-Untuk hanya merekam gaze:
+**Terminal 2 — from the repository root:**
 
-```bash
-python eyetrax/gaze_logger.py
+```powershell
+cd frontend
+npm.cmd run dev
 ```
 
-Untuk memuat model lokal tepercaya, gunakan `--model-file path/to/gaze_model.pkl`. Model yang dimuat tetap melalui validation dan preview. Default selalu melakukan calibration baru. Model pickle harus berasal dari sumber yang dipercaya.
+Open the address printed by Vite, usually `http://localhost:5173`. The frontend proxies `/api` and `/data` requests to the backend on port `8888`. API documentation is available at `http://127.0.0.1:8888/docs`.
 
-## Output
+### Usage
 
-Setiap sesi memiliki folder baru di `data/sessions/<session_id>/`:
+1. **Calibrate:** start calibration, follow the targets in the fullscreen window, and review the preview. Press **Enter** to save calibration, **R** to retry, or **Esc** to cancel.
+2. **Record:** open the website to evaluate and start recording. The latest saved calibration is reused; if none is available, calibration preparation runs first.
+3. Wait for the **valid gaze** count to increase before starting the task. Keep your face visible to the camera.
+4. Use the website on the primary display. Switching tabs or applications can also appear in the desktop recording.
+5. Return to **Record**, select **Stop & save session**, and wait for saving to finish.
+6. Open **Sessions** to review playback, screenshot heatmaps, friction events, and calibration reports. Select **Download PNG** to export a screenshot with its heatmap.
 
-| File | Isi |
+### Serving the frontend build
+
+To serve the frontend from the local backend:
+
+```powershell
+cd frontend
+npm.cmd run build
+cd ..
+.\.venv\Scripts\python.exe -m uvicorn api.server:app --host 127.0.0.1 --port 8888
+```
+
+Open `http://127.0.0.1:8888`. The backend serves `frontend/dist/` if that directory exists when the backend loads. Use in-app navigation; the backend does not currently provide an SPA fallback for direct access to every frontend route.
+
+## Command-line mode
+
+The CLI records gaze and mouse activity without the dashboard:
+
+```powershell
+.\.venv\Scripts\python.exe main.py
+```
+
+Complete calibration and review the preview. In CLI mode, pressing **Enter** in the preview starts recording, while **Ctrl+C** in the terminal stops and saves the session. Unlike web mode, this CLI workflow does not record screen video.
+
+Example configuration:
+
+```powershell
+.\.venv\Scripts\python.exe main.py --camera 0 --grid-rows 5 --grid-cols 5 --settle 1.2 --capture 2 --ema-alpha 0.25
+```
+
+| Argument | Default | Purpose |
+| --- | --- | --- |
+| `--camera` | `0` | Camera index |
+| `--grid-rows`, `--grid-cols` | `4`, `4` | Number of calibration target rows and columns |
+| `--settle` | `1.0` | Settling time per target, in seconds |
+| `--capture` | `1.5` | Sample capture time per target, in seconds |
+| `--ema-alpha` | `0.25` | Weight assigned to the previous EMA output |
+| `--model` | `ridge` | Choose `ridge`, `svr`, `elastic_net`, or `tiny_mlp` |
+| `--model-file` | Unset | Load a local model; validation and preview still run |
+| `--output` | `data/sessions` | CLI output directory |
+
+To record gaze only:
+
+```powershell
+.\.venv\Scripts\python.exe eyetrax/gaze_logger.py
+```
+
+Only load pickle model files from trusted sources.
+
+## Session data
+
+Each session is stored in `data/sessions/<session_id>/`.
+
+| File | Contents |
 | --- | --- |
-| `gaze_log.csv` | Timestamp, gaze_x, gaze_y yang valid, setelah filtering. Kompatibel dengan loader fusion lama. |
-| `gaze_quality.csv` | Raw dan filtered gaze per frame, status valid, alasan blink/no_face/off_screen/nonfinite. |
-| `mouse_session.json` | Mouse move, click, dan scroll; timestamp detik, struktur events/ts/meta. Dibuat dalam mode gaze + mouse. |
-| `calibration_report.json` | Konfigurasi, raw validation error, per-target error, noise covariance, valid frame ratio. |
-| `gaze_model.pkl` | Model hasil calibration sesi ini. |
-| `friction_events.json` | Kandidat dari heuristic rage click dan gaze-mouse mismatch yang sudah ada, dengan pairing timestamp terdekat. Dibuat setelah mode gaze + mouse selesai normal/Ctrl+C. |
+| `calibration_report.json` | Configuration, validation errors, session timestamps, and valid frame counts |
+| `gaze_model.pkl` | Calibrated gaze model |
+| `gaze_log.csv` | Timestamps and valid gaze coordinates after filtering |
+| `gaze_quality.csv` | Raw gaze, filtered gaze, validity, and frame rejection reasons |
+| `mouse_session.json` | Timestamped mouse movement, click, and scroll events; available in gaze + mouse mode |
+| `screen.mp4` | H.264 primary-screen recording configured at 10 FPS; available in web mode |
+| `friction_events.json` | Potential rage clicks and gaze–mouse mismatches |
+| `page_snapshots/` | JPG screenshots and a display-interval manifest, generated from video when screenshot heatmaps are requested |
 
-Data recording tidak mencakup video webcam. Output sesi tidak ditambahkan ke git.
+Web-mode calibration is stored in `data/latest_calibration/`. Webcam video is not saved as a primary session output. The session data directory is ignored by Git.
 
-### Playback melalui web app
+Screenshots are grouped by visual screen similarity, rather than website URL or DOM. Gaze from matching display intervals is combined on the corresponding screenshot. Different scroll positions may produce separate screenshots; very brief appearances may be ignored as transitions.
 
-Record pada web app menyimpan video layar utama sebagai `screen.mp4` (H.264), gaze, dan mouse dalam satu folder sesi. Buka Results → pilih sesi → Playback untuk memutar, pause, seek, dan melihat titik gaze hijau serta cursor/klik oranye sesuai waktu video. Klik penanda friction di bawah video untuk melompat ke kejadian tersebut. Tab Heatmap memakai screenshot statis per tampilan halaman, dengan gaze digabung dari semua kunjungan ke tampilan yang cocok. Smoothing Gaussian tetap (radius 90px), tanpa kontrol kustom. Pilih thumbnail halaman dan unduh screenshot beserta heatmap melalui Download PNG. Screenshot dibuat dari rekaman tersimpan saat tab dibuka, lalu disimpan di `page_snapshots/` agar sesi lama juga didukung. Pengelompokan visual bukan identifikasi URL/DOM; posisi scroll berbeda dapat menjadi screenshot terpisah. Tampilan kurang dari 0,75 detik diabaikan untuk mengurangi screenshot transisi.
+## Methods and interpreting results
 
-Setelah memperbarui aplikasi, restart backend dan frontend agar proxy `/data` aktif. Tunggu indikator frame kamera dan valid gaze muncul sebelum memulai tugas. Jika gaze tetap 0, halaman detail menampilkan penyebab tracking gagal; rekaman lama tanpa sampel gaze tidak bisa dipulihkan menjadi data gaze. Untuk akurasi, gunakan resolusi layar dan posisi kamera yang sama dengan saat kalibrasi. Perekaman web memakai kalibrasi terakhir jika tersedia.
+- **Calibration:** a default 4 × 4 grid followed by validation on five different targets. Validation samples are not used to retrain the regressor.
+- **Gaze estimation:** facial landmark features are mapped to screen coordinates using Ridge Regression by default.
+- **Filtering:** Kalman filtering and EMA reduce jitter. Smoothing does not remove systematic bias; a larger EMA weight can also increase lag.
+- **Rage clicks:** candidates are detected from at least three clicks within a one-second window.
+- **Gaze–mouse mismatch:** each click is paired with the nearest gaze sample within ±0.5 seconds; a candidate is flagged when the distance exceeds 150 pixels.
+- **Screenshot heatmaps:** gaze density is rendered using a Gaussian kernel with fixed smoothing.
 
-Tes playback tanpa kamera: `python -m unittest discover -s tests -p test_session_playback.py -v` dan `node --test frontend/src/components/playbackTimeline.test.js`.
+`mean_error_px`, `median_error_px`, and `p90_error_px` measure raw gaze error relative to validation targets. Lower values indicate predictions closer to the targets during that stage, rather than guaranteed accuracy throughout the session. Filter noise is estimated from the same validation pass, so the report is not an independent accuracy test of the filtered output.
 
-## Apa yang diperbaiki
+Review potential friction events and interface recommendations alongside the video, tracking quality, and task context. The absence of mismatch events in a session without valid gaze does not establish that the interface has no usability issues.
 
-- Persistent calibration dots dengan satu active target; titik yang selesai tetap terlihat.
-- Minimal 10 valid samples per target, maksimal dua kali retry jika data kurang. Jika tetap gagal, calibration berhenti dengan pesan error, bukan melatih model pada grid yang tidak lengkap.
-- Settling terpisah dari capture; frame blink, no face, atau nonfinite tidak digunakan untuk training.
-- Camera dan window dibersihkan saat calibration dibatalkan atau gagal.
-- Fine tuning Kalman memakai variasi gaze **di dalam tiap target**, setelah mean masing-masing target dikurangi. Jarak antar-target dan systematic bias tidak dihitung sebagai noise.
-- Kalman menggunakan hasil `correct()` untuk frame saat ini, bukan prediction sebelum correction.
-- Smoother direset ketika valid tracking kembali setelah gap lebih dari 250 ms, agar fixation sebelumnya tidak terbawa. Raw gaze di luar layar tidak dipaksa ke pinggir layar.
-- Entry point utama yang sebelumnya memanggil path mouse tracker yang tidak ada diganti dengan satu recording flow. Calibration dan OpenCV UI berjalan di main thread; mouse listener baru dimulai setelah preview diterima.
+## Repository structure
 
-## Menilai akurasi
-
-`mean_error_px` dan `p90_error_px` mengukur jarak raw prediction ke validation target. Nilai lebih kecil berarti hasil lebih dekat ke target. Angka ini belum membuktikan akurasi pada semua posisi dan kondisi penggunaan. Filter noise diestimasi pada pass validation yang sama, sehingga laporan ini bukan evaluasi independen untuk filtered output.
-
-Kalman dan EMA dapat mengurangi jitter, tetapi tidak menghilangkan systematic bias. `ema-alpha` di implementasi ini merupakan bobot output sebelumnya: semakin besar nilainya, semakin kuat smoothing dan semakin besar lag. Mulai dari 0.25, lalu bandingkan beberapa sesi dengan posisi kepala dan pencahayaan yang sama.
-
-Jika error masih besar, lakukan calibration ulang dengan posisi kepala stabil, pencahayaan merata, dan kamera sejajar wajah. Coba capture lebih lama atau grid 5x5, kemudian bandingkan validation error. Grid lebih padat dan capture lebih lama belum tentu meningkatkan akurasi pada semua pengguna.
-
-Heuristic gaze-mouse mismatch saat ini memakai threshold 150 px. Jika validation error mendekati atau melebihi nilai itu, interpretasi kandidat mismatch perlu ditinjau. Kandidat friction bukan diagnosis kebingungan pengguna. Implementasi ini belum mengubah threshold menjadi threshold tervalidasi, belum menambah rekomendasi UI, dan belum menghubungkan gaze ke DOM/viewport website.
-
-## Verifikasi
-
-```bash
-python -m pip install pytest
-python -m pytest -q
+```text
+api/
+  server.py                API endpoints and session process management
+  page_snapshots.py        Screen screenshot grouping
+  _scripts/                Web-mode calibration and recording
+eyetrax/
+  src/eyetrax/             Gaze estimator, models, filters, and workflows
+frontend/
+  src/pages/               Home, Calibrate, Record, Sessions, session details
+  src/components/          Playback, heatmaps, and interface components
+  src/assets/              Gazely logos
+fusion/
+  live_fusion.py           CLI entry point and friction heuristics
+mouse-tracker/             Mouse tracking components
+tests/                     Python tests
+main.py                    Gaze + mouse CLI entry point
+start.py                   Windows local launcher
 ```
 
-Automated tests mencakup noise covariance, posterior Kalman, reset EMA, persistent dots, validation error, grid alignment, calibration cancellation, insufficient samples, validation tanpa training, preview handoff, kualitas frame, dan pembatalan sebelum recording. Webcam, fullscreen, dan akurasi pada perangkat pengguna tetap perlu diuji langsung.
+`start.py` installs API dependencies and starts the backend. It also builds the frontend if `frontend/dist/` does not exist. EyeTrax, MSS, and frontend dependencies must already be installed. Rebuild after frontend changes because the launcher does not rebuild an existing `dist` directory.
+
+## Testing
+
+Run Python tests from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install pytest
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Screenshot and recording tests can also run without a camera using the standard library:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_session_playback.py -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p test_page_snapshots.py -v
+```
+
+Frontend timeline and heatmap tests:
+
+```powershell
+cd frontend
+node --test src/components/playbackTimeline.test.js src/components/heatmapDensity.test.js
+npm.cmd run build
+```
+
+Automated tests use simulated inputs for device-dependent behavior. Webcam access, fullscreen behavior, real-world synchronization, and accuracy on the intended participants and devices still require manual testing.
+
+## Troubleshooting
+
+| Problem | What to check |
+| --- | --- |
+| Frontend cannot connect to the API | Confirm that the backend is running on port `8888` and the proxy configuration matches |
+| Camera unavailable | Close other applications using the camera, check camera permissions, or select another camera index in CLI mode |
+| Valid gaze count stays at zero | Check tracking quality messages, lighting, face position, and calibration; gaze data that was never recorded cannot be recovered |
+| Video unavailable | Check `video_error` in the session report and OpenCV H.264 encoder support |
+| Page screenshots unavailable | Confirm that the session has finished and contains readable video |
+| Built interface has not updated | Run `npm.cmd run build` again; restart the backend if the `dist/` directory was newly created |
+
+Storage and the dashboard can move to a server by adding session uploads and access management while retaining local recording. Moving recording into the browser also requires adapting camera, screen, and mouse acquisition, calibration, and synchronization.
+
+## Attribution
+
+Gaze estimation uses [EyeTrax](https://github.com/ck-zhang/eyetrax) code included in the `eyetrax/` directory. Its license is available in [eyetrax/LICENSE](eyetrax/LICENSE). The Onest font license is included in [frontend/public/Onest-OFL.txt](frontend/public/Onest-OFL.txt).
